@@ -1,3 +1,6 @@
+"""
+Used to convert .csv into tfrecord format
+"""
 import pandas as pd
 import numpy as np
 import glob
@@ -7,6 +10,11 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tqdm import tqdm
 import argparse
+
+attributes = ['Timestamp', 'canID', 'DLC', 
+                           'Data0', 'Data1', 'Data2', 
+                           'Data3', 'Data4', 'Data5', 
+                           'Data6', 'Data7', 'Flag']
 
 def fill_flag(sample):
     if not isinstance(sample['Flag'], str):
@@ -28,7 +36,7 @@ def preprocess(file_name):
     print('Dask processing: -------------')
     df = df.apply(fill_flag, axis=1)
     pd_df = df.compute()
-    pd_df = pd_df[['Timestamp', 'canID', 'Flag']]
+    pd_df = pd_df[['Timestamp', 'canID', 'Flag']][:100]
     pd_df['canBits'] = pd_df.canID.apply(convert_canid_bits)
     print('Dask processing: DONE')
     print('Aggregate data -----------------')
@@ -45,25 +53,6 @@ def preprocess(file_name):
     test_df['label'] = test_df['label'].apply(lambda x: 1 if any(x) else 0)
     print('Preprocessing: DONE')
     return test_df[['features', 'label']].reset_index().drop(['index'], axis=1)
-
-def create_train_test(df):
-    print('Create train - test - val: ')
-    train, test = train_test_split(df, test_size=0.3, shuffle=True)
-    train, val = train_test_split(train, test_size=0.2, shuffle=True)
-    train_ul, train_l = train_test_split(train, test_size=0.1, shuffle=True)
-    train_ul = train_ul.reset_index().drop(['index'], axis=1)
-    train_l = train_l.reset_index().drop(['index'], axis=1)
-    test = test.reset_index().drop(['index'], axis=1)
-    val = val.reset_index().drop(['index'], axis=1)
-    
-    data_info = {
-        "train_unlabel": train_ul.shape[0],
-        "train_label": train_l.shape[0],
-        "validation": val.shape[0],
-        "test": test.shape[0]
-    }
-    
-    return data_info, train_ul, train_l, val, test
 
 def serialize_example(x, y):
     """converts x, y to tf.train.Example and serialize"""
@@ -86,44 +75,38 @@ def write_tfrecord(data, filename):
     tfrecord_writer.close()    
 
 def main(indir, outdir, attacks):
-    attributes = ['Timestamp', 'canID', 'DLC', 
-                           'Data0', 'Data1', 'Data2', 
-                           'Data3', 'Data4', 'Data5', 
-                           'Data6', 'Data7', 'Flag']
-    attack_types = ['DoS', 'Fuzzy', 'gear', 'RPM']
-
-    for attack in attack_types[1:]:
-        file_name = '{}/{}_dataset.csv'.format(indir, attack)
-        print(file_name + '---------------------------')
-        df = preprocess(file_name)
-        data_info, train_ul, train_l, val, test = create_train_test(df)
-        save_path = '{}/{}/'.format(outdir, attack)
-        print('Path: ', save_path)
-        print('Writing train_unlabel.......................')
-        write_tfrecord(train_ul, save_path + "train_unlabel")
-        print('Writing train_label.......................')
-        write_tfrecord(train_l, save_path + "train_label")
-        print('Writing test.......................')
-        write_tfrecord(test, save_path + "test")
-        print('Writing val.......................')
-        write_tfrecord(val, save_path + "val")
-        print('Writing data info')
-        json.dump(data_info, open(save_path + 'datainfo.txt', 'w'))
-        print('==========================================')
-
+    data_info = {}
+    for attack in attacks:
+        print('Attack: {} ==============='.format(attack))
+        finput = '{}/{}_dataset.csv'.format(indir, attack)
+        df = preprocess(finput)
+        print("Writing...................")
+        foutput_attack = '{}/{}'.format(outdir, attack)
+        foutput_normal = '{}/Normal_{}'.format(outdir, attack)
+        df_attack = df[df['label'] == 1]
+        df_normal = df[df['label'] == 0]
+        write_tfrecord(df_attack, foutput_attack)
+        write_tfrecord(df_normal, foutput_normal)
+        
+        data_info[foutput_attack] = df_attack.shape[0]
+        data_info[foutput_normal] = df_normal.shape[0]
+        
+    json.dump(data_info, open('{}/datainfo.txt'.format(outdir), 'w'))
+    print("DONE!")
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--indir', type=str, default="./Data/Car-Hacking")
-    parser.add_argument('--outdir', type=str, default="./Data/")
+    parser.add_argument('--outdir', type=str, default="./Data/TFRecord/")
     parser.add_argument('--attack_type', type=str, default="all", nargs='+')
     args = parser.parse_args()
     
     if args.attack_type == 'all':
         attack_types = ['DoS', 'Fuzzy', 'gear', 'RPM']
     else:
-        attack_types = args.attack_type
+        attack_types = [args.attack_type]
      
-    main(args.indir, args.outdir, args.attack_type)
+    main(args.indir, args.outdir, attack_types)
         
     
     
