@@ -61,7 +61,6 @@ def write_tfrecord(data, filename):
                 batch_data = sess.run(iterator)
                 for x, y in zip(batch_data['input_features'], batch_data['label']):
                     tfrecord_writer.write(serialize_example(x, y))
-                break
             except:
                 break
             
