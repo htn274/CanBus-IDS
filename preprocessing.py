@@ -36,23 +36,27 @@ def preprocess(file_name):
     print('Dask processing: -------------')
     df = df.apply(fill_flag, axis=1)
     pd_df = df.compute()
-    pd_df = pd_df[['Timestamp', 'canID', 'Flag']][:100]
+    pd_df = pd_df[['Timestamp', 'canID', 'Flag']].sort_values('Timestamp',  ascending=True)
     pd_df['canBits'] = pd_df.canID.apply(convert_canid_bits)
+    pd_df['Flag'] = pd_df['Flag'].apply(lambda x: True if x == 'T' else False)
     print('Dask processing: DONE')
     print('Aggregate data -----------------')
     as_strided = np.lib.stride_tricks.as_strided  
-    test_df = pd_df.reset_index()
     win = 29
-    v = as_strided(test_df.canBits, (len(test_df) - (win - 1), win), (test_df.canBits.values.strides * 2))
-    test_df['Flag'] = test_df['Flag'].apply(lambda x: True if x == 'T' else False)
-    test_df['features'] = pd.Series(v.tolist(), index=test_df.index[win - 1:])
-    # test_df['features'] = test_df.features.apply(lambda x: np.array(x).ravel().tolist())
-    v = as_strided(test_df.Flag, (len(test_df) - (win - 1), win), (test_df.Flag.values.strides * 2))
-    test_df['label'] = pd.Series(v.tolist(), index=test_df.index[win - 1:])
-    test_df = test_df.iloc[win - 1:]
-    test_df['label'] = test_df['label'].apply(lambda x: 1 if any(x) else 0)
+    s = 29
+    #Stride is counted by bytes
+    feature = as_strided(pd_df.canBits, ((len(pd_df) - win) // s + 1, win), (8*s, 8)) 
+    label = as_strided(pd_df.Flag, ((len(pd_df) - win) // s + 1, win), (1*s, 1))
+    df = pd.DataFrame({
+        'features': pd.Series(feature.tolist()),
+        'label': pd.Series(label.tolist())
+    }, index= range(len(feature)))
+
+    df['label'] = df['label'].apply(lambda x: 1 if any(x) else 0)
     print('Preprocessing: DONE')
-    return test_df[['features', 'label']].reset_index().drop(['index'], axis=1)
+    print('#Normal: ', df[df['label'] == 0].shape[0])
+    print('#Attack: ', df[df['label'] == 1].shape[0])
+    return df[['features', 'label']].reset_index().drop(['index'], axis=1)
 
 def serialize_example(x, y):
     """converts x, y to tf.train.Example and serialize"""
