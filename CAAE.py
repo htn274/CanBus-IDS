@@ -8,6 +8,22 @@ class CAAE:
         self.z_dim = z_dim
     
 
+    def dense(self, x, n1, n2, name):
+        """
+        Used to create a dense layer.
+        :param x: input tensor to the dense layer
+        :param n1: no. of input neurons
+        :param n2: no. of output neurons
+        :param name: name of the entire dense layer.i.e, variable scope name.
+        :return: tensor with shape [batch_size, n2]
+        """
+        with tf.variable_scope(name, reuse=None):
+            weights = tf.get_variable("weights", shape=[n1, n2],
+                                      initializer=tf.random_normal_initializer(mean=0., stddev=0.01))
+            bias = tf.get_variable("bias", shape=[n2], initializer=tf.constant_initializer(0.0))
+            out = tf.add(tf.matmul(x, weights), bias, name='matmul')
+            return out
+        
     def encoder(self, x, reuse=False, supervised=False):
         if reuse:
             tf.get_variable_scope().reuse_variables()
@@ -70,6 +86,38 @@ class CAAE:
             #print(out.shape)
             return out
     
+#     def discriminator_gauss(self, x, reuse=False):
+#         """
+#         Discriminator that is used to match the posterior distribution with a given gaussian distribution.
+#         :param x: tensor of shape [batch_size, z_dim]
+#         :param reuse: True -> Reuse the discriminator variables,
+#                       False -> Create or search of variables before creating
+#         :return: tensor of shape [batch_size, 1]
+#         """
+#         if reuse:
+#             tf.get_variable_scope().reuse_variables()
+#         with tf.name_scope('Discriminator_Gauss'):
+#             dc_den1 = tf.nn.relu(fullyConnected(x, output_size=1000, name='dc_g_den1'))
+#             dc_den2 = tf.nn.relu(fullyConnected(dc_den1, output_size= 1000, name='dc_g_den2'))
+#             output = fullyConnected(dc_den2, output_size= 1, name='dc_g_output')
+#             return output
+
+#     def discriminator_categorical(self, x, reuse=False):
+#         """
+#         Discriminator that is used to match the posterior distribution with a given categorical distribution.
+#         :param x: tensor of shape [batch_size, n_labels]
+#         :param reuse: True -> Reuse the discriminator variables,
+#                       False -> Create or search of variables before creating
+#         :return: tensor of shape [batch_size, 1]
+#         """
+#         if reuse:
+#             tf.get_variable_scope().reuse_variables()
+#         with tf.name_scope('Discriminator_Categorial'):
+#             dc_den1 = tf.nn.relu(fullyConnected(x, output_size=1000, name='dc_c_den1'))
+#             dc_den2 = tf.nn.relu(fullyConnected(dc_den1, output_size=1000, name='dc_c_den2'))
+#             output = fullyConnected(dc_den2, output_size=1, name='dc_c_output')
+#             return output
+
     def discriminator_gauss(self, x, reuse=False):
         """
         Discriminator that is used to match the posterior distribution with a given gaussian distribution.
@@ -81,9 +129,9 @@ class CAAE:
         if reuse:
             tf.get_variable_scope().reuse_variables()
         with tf.name_scope('Discriminator_Gauss'):
-            dc_den1 = tf.nn.relu(fullyConnected(x, output_size=1000, name='dc_g_den1'))
-            dc_den2 = tf.nn.relu(fullyConnected(dc_den1, output_size= 1000, name='dc_g_den2'))
-            output = fullyConnected(dc_den2, output_size= 1, name='dc_g_output')
+            dc_den1 = tf.nn.relu(self.dense(x, self.z_dim, 1000, name='dc_g_den1'))
+            dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_g_den2'))
+            output = self.dense(dc_den2, 1000, 1, name='dc_g_output')
             return output
 
     def discriminator_categorical(self, x, reuse=False):
@@ -97,7 +145,7 @@ class CAAE:
         if reuse:
             tf.get_variable_scope().reuse_variables()
         with tf.name_scope('Discriminator_Categorial'):
-            dc_den1 = tf.nn.relu(fullyConnected(x, output_size=1000, name='dc_c_den1'))
-            dc_den2 = tf.nn.relu(fullyConnected(dc_den1, output_size=1000, name='dc_c_den2'))
-            output = fullyConnected(dc_den2, output_size=1, name='dc_c_output')
+            dc_den1 = tf.nn.relu(self.dense(x, self.n_labels, 1000, name='dc_c_den1'))
+            dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_c_den2'))
+            output = self.dense(dc_den2, 1000, 1, name='dc_c_output')
             return output
