@@ -9,9 +9,11 @@ import tqdm
 from utils import *
 from AAE import AAE
 from CAAE import CAAE
-    
+import argparse
+
 class Model:
-    def __init__(self, model='AAE', input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
+    def __init__(self, model='AAE', unknown_attack=None, input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
+        self.unknown_attack = unknown_attack
         self.read_datainfo()
         self.input_dim = input_dim
         self.n_l1 = 1000
@@ -43,14 +45,13 @@ class Model:
         "test": 0
         }
         self.labels = ['DoS', 'Fuzzy', 'gear', 'RPM', 'Normal']
-        self.unknown_attack = ''
         for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l is not self.unknown_attack]:
             data_read = json.load(open(f))
             for key in self.data_info.keys():
                 self.data_info[key] += data_read[key]
 
         self.attack = 'all' # DoS, Fuzzy, gear, RPM, all
-        if self.unknown_attack != '':
+        if self.unknown_attack != None:
             self.results_path = './Results/unknown/{}'.format(self.unknown_attack)
         else:
             self.results_path = './Results/{}/'.format(self.attack)
@@ -58,7 +59,7 @@ class Model:
         print('Data info: ', self.data_info)
         
     def construct_data_flow(self):
-        train_unlabel_paths = ['./Data/{}/train_unlabel'.format(l) for l in self.labels if l is not self.unknown_attack]
+        train_unlabel_paths = ['./Data/{}/train_unlabel'.format(l) for l in self.labels]
         unknown_train_unlabel_path = ['./Data/{}/train_unlabel'.format(self.unknown_attack)]
         train_label_paths = ['./Data/{}/train_label'.format(l) for l in self.labels if l is not self.unknown_attack]
         val_paths = ['./Data/{}/val'.format(l) for l in self.labels if l is not self.unknown_attack]
@@ -273,14 +274,21 @@ class Model:
                     saver.save(sess, save_path=saved_model_path, global_step=step)
                     
 
-    def test(self, results_path):
+    def test(self, results_path, unknown_test = False):
         self.build()
-        test_size = self.data_info['test']
         init = tf.global_variables_initializer()
         saver = tf.train.Saver()
-        data_path = ['./Data/{}/'.format(a) for a in self.labels]
+        if unknown_test:
+            data_path = ['./Data/{}/'.format(a) for a in [self.unknown_attack, 'Normal']]
+            test_size = 0
+            for f in ['{}/datainfo.txt'.format(p) for p in data_path]:
+                data_read = json.load(open(f))
+                test_size += data_read['test']
+        else:
+            test_size = self.data_info['test']
+            data_path = ['./Data/{}/'.format(a) for a in self.labels]
         # results_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
-        
+        print('Test data: ', data_path)
         with tf.Session() as sess:
             saver.restore(sess, save_path=tf.train.latest_checkpoint(results_path + '/Saved_models'))
             test = data_from_tfrecord([p + 'test' for p in data_path], self.batch_size, 1)
@@ -304,10 +312,21 @@ class Model:
         evaluate(y_true, y_pred)
                     
 if __name__ == '__main__':
-    model = Model(model='CAAE', batch_size=64)
-    is_train = False
-    if is_train:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--res_path', type=str, default=None)
+    parser.add_argument('--model', type=str, default="CAAE")
+    parser.add_argument('--unknown_attack', type=str, default=None)
+    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--is_train', action='store_true')
+    args = parser.parse_args()
+    
+    model = Model(model=args.model, unknown_attack = args.unknown_attack, batch_size=args.batch_size)
+    if args.is_train:
         model.train()
     else:
-        res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
-        model.test(res_path)
+        if args.res_path is None:
+            print("Must define res_path which store model's weights")
+        else:
+            #res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
+            #res_path = './Results/unknown/DoS/2021-07-21 15:02:31.836424_10_0.0001_100_300_0.9_Semi_Supervised/'
+            model.test(args.res_path, unknown_test=True)
