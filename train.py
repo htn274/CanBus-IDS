@@ -10,6 +10,8 @@ from utils import *
 from AAE import AAE
 from CAAE import CAAE
 import argparse
+gpus= tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(gpus[0], True)
 
 class Model:
     def __init__(self, model='AAE', unknown_attack=None, input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
@@ -44,8 +46,8 @@ class Model:
         "validation": 0, 
         "test": 0
         }
-        self.labels = ['DoS', 'Fuzzy', 'gear', 'RPM', 'Normal']
-        for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l is not self.unknown_attack]:
+        self.labels = ['DoS_50', 'Fuzzy', 'gear', 'RPM', 'Normal']
+        for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l != self.unknown_attack]:
             data_read = json.load(open(f))
             for key in self.data_info.keys():
                 self.data_info[key] += data_read[key]
@@ -60,15 +62,25 @@ class Model:
         
     def construct_data_flow(self):
         train_unlabel_paths = ['./Data/{}/train_unlabel'.format(l) for l in self.labels]
-        unknown_train_unlabel_path = ['./Data/{}/train_unlabel'.format(self.unknown_attack)]
-        train_label_paths = ['./Data/{}/train_label'.format(l) for l in self.labels if l is not self.unknown_attack]
-        val_paths = ['./Data/{}/val'.format(l) for l in self.labels if l is not self.unknown_attack]
-
+        #unknown_train_unlabel_path = ['./Data/{}/train_unlabel'.format(self.unknown_attack)]
+        train_label_paths = ['./Data/{}/train_label'.format(l) for l in self.labels if l != self.unknown_attack]
+        val_paths = ['./Data/{}/val'.format(l) for l in self.labels if l != self.unknown_attack]
+        
+        print('Unlabeled data: ', train_unlabel_paths)
+        print('Label data:', train_label_paths)
+        
         train_unlabel = data_from_tfrecord(train_unlabel_paths, self.batch_size - self.batch_size_unknown, self.n_epochs)
-        train_unlabel_unknown = data_from_tfrecord(unknown_train_unlabel_path, self.batch_size_unknown, self.n_epochs)
+        # train_unlabel_unknown = data_from_tfrecord(unknown_train_unlabel_path, self.batch_size_unknown, self.n_epochs)
         train_label = data_from_tfrecord(train_label_paths, self.batch_size, self.n_epochs)
         validation = data_from_tfrecord(val_paths, self.batch_size, self.n_epochs)
-        return train_unlabel, train_unlabel_unknown, train_label, validation
+        
+        if self.unknown_attack != None:
+            val_unknown_path = ['./Data/{}/val'.format(a) for a in [self.unknown_attack, 'Normal']]
+            data_info_unknown_attack = json.load(open('./Data/{}/datainfo.txt'.format(self.unknown_attack)))
+            self.validation_unknown_size = data_info_unknown_attack['validation']
+            self.validation_unknown = data_from_tfrecord(val_unknown_path, self.batch_size, self.n_epochs) 
+        
+        return train_unlabel, train_label, validation
         
     
     def build(self):
@@ -172,7 +184,7 @@ class Model:
         return avg_acc, precision, recall, f1
         
     def train(self):
-        train_unlabel, train_unlabel_unknown, train_label, validation = self.construct_data_flow()
+        train_unlabel, train_label, validation = self.construct_data_flow()
         self.build()
         init = tf.global_variables_initializer()
         # Tensorboard visualization
@@ -220,11 +232,11 @@ class Model:
                     batch_x_ul, batch_y_ul = data_stream(train_unlabel, sess)
                     batch_x_l, batch_y_l = data_stream(train_label, sess)
                     #print(batch_x_ul)
-                    if self.unknown_attack != '':
-                        hint_x, hint_y = data_stream(train_unlabel_unknown, sess)
-                        batch_x_ul = np.append(batch_x_ul, hint_x, axis=0)
-                        batch_y_ul = np.append(batch_y_ul, hint_y, axis=0)
-                        np.random.shuffle(batch_x_ul)
+#                     if self.unknown_attack != '':
+#                         hint_x, hint_y = data_stream(train_unlabel_unknown, sess)
+#                         batch_x_ul = np.append(batch_x_ul, hint_x, axis=0)
+#                         batch_y_ul = np.append(batch_y_ul, hint_y, axis=0)
+#                         np.random.shuffle(batch_x_ul)
 
                     #print(batch_x_ul)
                     num_normal += (np.argmax(batch_y_ul, axis=1) == 0).sum()
@@ -270,6 +282,13 @@ class Model:
                     print("Precision on Known attack: {}".format(precision_known))
                     print("Recall on Known attack: {}".format(recall_known))
                     print("F1 on Known attack: {}".format(f1_known))
+                    
+                    acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
+                    print("Accuracy on unKnown attack: {}".format(acc_unknown))
+                    print("Precision on unKnown attack: {}".format(precision_unknown))
+                    print("Recall on unKnown attack: {}".format(recall_unknown))
+                    print("F1 on unKnown attack: {}".format(f1_unknown))
+                    
                     print('Save model')
                     saver.save(sess, save_path=saved_model_path, global_step=step)
                     
@@ -306,21 +325,23 @@ class Model:
                 #prob = np.max(batch_pred, axis=1).reshape((self.batch_size))
                 #batch_pred = np.argmax(batch_pred, axis=1).reshape((self.batch_size))
                 y_pred = np.append(y_pred, batch_pred, axis=0)
-                y_true = np.append(y_true, batch_label, axis=0)  
+                y_true = np.append(y_true, batch_label, axis=0) 
                 #total_prob = np.append(total_prob, prob, axis=0)
                 
         evaluate(y_true, y_pred)
                     
 if __name__ == '__main__':
+    #python3 train.py --unknown_attack 'DoS' --model "CAAE" --batch_size 64 --is_train
     parser = argparse.ArgumentParser()
     parser.add_argument('--res_path', type=str, default=None)
     parser.add_argument('--model', type=str, default="CAAE")
     parser.add_argument('--unknown_attack', type=str, default=None)
-    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--is_train', action='store_true')
     args = parser.parse_args()
     
-    model = Model(model=args.model, unknown_attack = args.unknown_attack, batch_size=args.batch_size)
+    model = Model(model=args.model, unknown_attack = args.unknown_attack, batch_size=args.batch_size, n_epochs=args.epochs)
     if args.is_train:
         model.train()
     else:
