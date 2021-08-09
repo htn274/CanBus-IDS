@@ -28,7 +28,10 @@ class Model:
         self.supervised_lr = supervised_lr
         self.reconstruction_lr = reconstruction_lr
         self.regularization_lr = regularization_lr
-        self.beta1 = 0.9
+        self.beta1_sup=0.9
+        self.beta1 = 0.5
+        self.beta2 = 0.9
+        self.num_critic = 5
         self.n_labels = 2
         self.n_labeled = self.data_info['train_label']
         self.validation_size = self.data_info['validation']
@@ -46,7 +49,7 @@ class Model:
         "validation": 0, 
         "test": 0
         }
-        self.labels = ['DoS_50', 'Fuzzy', 'gear', 'RPM', 'Normal']
+        self.labels = ['DoS', 'Fuzzy', 'gear', 'RPM', 'Normal']
         for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l != self.unknown_attack]:
             data_read = json.load(open(f))
             for key in self.data_info.keys():
@@ -83,6 +86,17 @@ class Model:
         return train_unlabel, train_label, validation
         
     
+    def gradient_penalty(self, real_samples, g_samples, discriminator):
+        alpha = tf.random_uniform(shape=[self.batch_size, 1], minval=0., maxval=1.)
+        differences = g_samples - real_samples
+        interpolates = real_samples + (alpha * differences)
+        print('Variable scope Gradient: ', tf.get_variable_scope())
+        with (tf.variable_scope(tf.get_variable_scope())):
+            gradients = tf.gradients(discriminator(interpolates, reuse=True), [interpolates])[0]
+        slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gradients), reduction_indices=[1]))
+        gradient_penalty = tf.reduce_mean((slopes-1.)**2) 
+        return gradient_penalty
+    
     def build(self):
         #Define place holder
         self.x_input = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Input')
@@ -106,6 +120,7 @@ class Model:
         self.autoencoder_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1).minimize(self.autoencoder_loss)
         # Regularization Phase
         # Train both 2 discriminator of gaussian and categorical to detect the output from encoder
+        print('Variable scope: ', tf.get_variable_scope())
         with (tf.variable_scope(tf.get_variable_scope())):
             # Discriminator for gaussian
             d_g_real = self.model.discriminator_gauss(self.real_distribution)
@@ -117,33 +132,39 @@ class Model:
             d_c_fake = self.model.discriminator_categorical(self.encoder_output_label, reuse=True)
 
         # Discriminator gaussian loss 
-        dc_g_loss_real = tf.reduce_mean(
-                            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_real), logits=d_g_real))
-        dc_g_loss_fake = tf.reduce_mean(
-                            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_g_fake), logits=d_g_fake))
-        self.dc_g_loss = dc_g_loss_real + dc_g_loss_fake
+        #         dc_g_loss_real = tf.reduce_mean(
+        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_real), logits=d_g_real))
+        #         dc_g_loss_fake = tf.reduce_mean(
+        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_g_fake), logits=d_g_fake))
+        #         self.dc_g_loss = dc_g_loss_real + dc_g_loss_fake
+        #WGAN-GP
+        self.dc_g_loss = -tf.reduce_mean(d_g_real) + tf.reduce_mean(d_g_fake) \
+                        + 10.0 * self.gradient_penalty(self.real_distribution, self.encoder_output_latent, self.model.discriminator_gauss)
 
         # Discriminator categorical loss
-        dc_c_loss_real = tf.reduce_mean(
-                            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_real), logits=d_c_real))
-        dc_c_loss_fake = tf.reduce_mean(
-                            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_c_fake), logits=d_c_fake))
-        self.dc_c_loss = dc_c_loss_fake + dc_c_loss_real
+        #         dc_c_loss_real = tf.reduce_mean(
+        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_real), logits=d_c_real))
+        #         dc_c_loss_fake = tf.reduce_mean(
+        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_c_fake), logits=d_c_fake))
+        #         self.dc_c_loss = dc_c_loss_fake + dc_c_loss_real
+        self.dc_c_loss = -tf.reduce_mean(d_c_real) + tf.reduce_mean(d_c_fake) \
+                        + 10.0 * self.gradient_penalty(self.categorial_distribution, self.encoder_output_label, self.model.discriminator_categorical)
 
         all_variables = tf.trainable_variables()
         dc_g_var = [var for var in all_variables if 'dc_g_' in var.name]
         dc_c_var = [var for var in all_variables if 'dc_c_' in var.name]
         self.discriminator_g_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate,
-                                                               beta1=self.beta1).minimize(self.dc_g_loss, var_list=dc_g_var)
+                                                               beta1=self.beta1, beta2=self.beta2).minimize(self.dc_g_loss, var_list=dc_g_var)
         self.discriminator_c_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate,
-                                                               beta1=self.beta1).minimize(self.dc_c_loss, var_list=dc_c_var)
+                                                               beta1=self.beta1, beta2=self.beta2).minimize(self.dc_c_loss, var_list=dc_c_var)
         # Generator loss
-        generator_g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_fake), logits=d_g_fake))
-        generator_c_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_fake), logits=d_c_fake))
-        self.generator_loss = generator_g_loss + generator_c_loss
+        # generator_g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_fake), logits=d_g_fake))
+        # generator_c_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_fake), logits=d_c_fake))
+        #self.generator_loss = generator_g_loss + generator_c_loss
+        self.generator_loss = -tf.reduce_mean(d_g_fake)-tf.reduce_mean(d_c_fake)
 
         en_var = [var for var in all_variables if 'e_' in var.name]
-        self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1).minimize(self.generator_loss, var_list=en_var)
+        self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.generator_loss, var_list=en_var)
         
         # Semi-Supervised Classification Phase
         # Train encoder with a small amount of label samples
@@ -156,7 +177,7 @@ class Model:
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
         self.supervised_encoder_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_input, logits=self.encoder_output_label_))
-        self.supervised_encoder_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1).minimize(self.supervised_encoder_loss, var_list=en_var)
+        self.supervised_encoder_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1_sup).minimize(self.supervised_encoder_loss, var_list=en_var)
 
         
 
@@ -194,10 +215,10 @@ class Model:
         tf.summary.scalar(name='Generator Loss', tensor=self.generator_loss)
         tf.summary.scalar(name='Supervised Encoder Loss', tensor=self.supervised_encoder_loss)
         # tf.summary.scalar(name='Supervised Encoder Accuracy', tensor=accuracy)
-        tf.summary.histogram(name='Encoder Gauss Distribution', values=self.encoder_output_latent)
-        tf.summary.histogram(name='Real Gauss Distribution', values=self.real_distribution)
-        tf.summary.histogram(name='Encoder Categorical Distribution', values=self.encoder_output_label)
-        tf.summary.histogram(name='Real Categorical Distribution', values=self.categorial_distribution)
+        #tf.summary.histogram(name='Encoder Gauss Distribution', values=self.encoder_output_latent)
+        #tf.summary.histogram(name='Real Gauss Distribution', values=self.real_distribution)
+        #tf.summary.histogram(name='Encoder Categorical Distribution', values=self.encoder_output_label)
+        #tf.summary.histogram(name='Real Categorical Distribution', values=self.categorial_distribution)
         self.summary_op = tf.summary.merge_all()
         accuracies = []
         # Saving the model
@@ -246,11 +267,12 @@ class Model:
     #                 print('Num attack: ', (np.argmax(batch_y_l, axis=1) == 1).sum())
 
                     sess.run(self.autoencoder_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.learning_rate: self.reconstruction_lr})
-                    sess.run(self.discriminator_g_optimizer,
-                             feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.real_distribution: z_real_dist, self.learning_rate: self.regularization_lr})
-                    sess.run(self.discriminator_c_optimizer,
-                             feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul,
-                                        self.categorial_distribution: real_cat_dist, self.learning_rate: self.regularization_lr})
+                    for _ in range(self.num_critic):
+                        sess.run(self.discriminator_g_optimizer,
+                                 feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.real_distribution: z_real_dist, self.learning_rate: self.regularization_lr})
+                        sess.run(self.discriminator_c_optimizer,
+                                 feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul,
+                                            self.categorial_distribution: real_cat_dist, self.learning_rate: self.regularization_lr})
                     sess.run(self.generator_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.learning_rate: self.regularization_lr})
 
 
@@ -283,11 +305,12 @@ class Model:
                     print("Recall on Known attack: {}".format(recall_known))
                     print("F1 on Known attack: {}".format(f1_known))
                     
-                    acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
-                    print("Accuracy on unKnown attack: {}".format(acc_unknown))
-                    print("Precision on unKnown attack: {}".format(precision_unknown))
-                    print("Recall on unKnown attack: {}".format(recall_unknown))
-                    print("F1 on unKnown attack: {}".format(f1_unknown))
+                    if self.unknown_attack != None:
+                        acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
+                        print("Accuracy on unKnown attack: {}".format(acc_unknown))
+                        print("Precision on unKnown attack: {}".format(precision_unknown))
+                        print("Recall on unKnown attack: {}".format(recall_unknown))
+                        print("F1 on unKnown attack: {}".format(f1_unknown))
                     
                     print('Save model')
                     saver.save(sess, save_path=saved_model_path, global_step=step)

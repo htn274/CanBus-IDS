@@ -46,9 +46,11 @@ class CAAE:
 
             conv4 = conv2d(drop3, name='e_conv4', kshape=[3, 3, 64, 64]) #[4, 4, 64] -> [4, 4, 64]
             pool4 = maxpool2d(conv4, name='e_pool4') # [4, 4, 64] -> [2, 2, 64]
-            #pool4 = tf.reshape(pool4, shape=[-1, 2 * 2 * 64])
+            # pool4 = tf.reshape(pool4, shape=[-1, 2 * 2 * 64])
 
             #print('Last CNN encoder: ', pool4.shape)
+            # latent_variable = self.dense(pool4, 256, self.z_dim, name='e_latent_variable')
+            # cat_op = self.dense(pool4, 256, self.n_labels, name='e_label')
             latent_variable = fullyConnected(pool4, name='e_latent_variable', output_size=self.z_dim)
             cat_op = fullyConnected(pool4, name='e_label', output_size=self.n_labels)
 
@@ -132,7 +134,7 @@ class CAAE:
             dc_den1 = tf.nn.relu(self.dense(x, self.z_dim, 1000, name='dc_g_den1'))
             dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_g_den2'))
             output = self.dense(dc_den2, 1000, 1, name='dc_g_output')
-            return output
+            return tf.nn.sigmoid(output)
 
     def discriminator_categorical(self, x, reuse=False):
         """
@@ -148,4 +150,4 @@ class CAAE:
             dc_den1 = tf.nn.relu(self.dense(x, self.n_labels, 1000, name='dc_c_den1'))
             dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_c_den2'))
             output = self.dense(dc_den2, 1000, 1, name='dc_c_output')
-            return output
+            return tf.nn.sigmoid(output)
