@@ -40,7 +40,7 @@ class Model:
             self.model_name = ''
         else:
             self.model = CAAE(self.n_labels, self.z_dim)
-            self.model_name = 'CNN'
+            self.model_name = 'CNN_WGAN'
         
     def read_datainfo(self):
         self.data_info = {
@@ -231,7 +231,16 @@ class Model:
         last_improvement = 0
         require_improvement = 20
         
-
+        accs = {
+            'known': [],
+            'unknown': []
+        }
+        
+        f1s = {
+            'known': [],
+            'unknown': []
+        }
+        
         with tf.Session() as sess:
             tensorboard_path, saved_model_path, log_path = form_results(self.model_name, self.results_path, self.z_dim, self.supervised_lr, self.batch_size, self.n_epochs, self.beta1)
             sess.run(init)
@@ -252,19 +261,9 @@ class Model:
 
                     batch_x_ul, batch_y_ul = data_stream(train_unlabel, sess)
                     batch_x_l, batch_y_l = data_stream(train_label, sess)
-                    #print(batch_x_ul)
-#                     if self.unknown_attack != '':
-#                         hint_x, hint_y = data_stream(train_unlabel_unknown, sess)
-#                         batch_x_ul = np.append(batch_x_ul, hint_x, axis=0)
-#                         batch_y_ul = np.append(batch_y_ul, hint_y, axis=0)
-#                         np.random.shuffle(batch_x_ul)
 
-                    #print(batch_x_ul)
                     num_normal += (np.argmax(batch_y_ul, axis=1) == 0).sum()
                     num_attack += (np.argmax(batch_y_ul, axis=1) == 1).sum()
-
-    #                 print('Num normal: ', (np.argmax(batch_y_l, axis=1) == 0).sum())
-    #                 print('Num attack: ', (np.argmax(batch_y_l, axis=1) == 1).sum())
 
                     sess.run(self.autoencoder_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.learning_rate: self.reconstruction_lr})
                     for _ in range(self.num_critic):
@@ -297,7 +296,7 @@ class Model:
                 print('Num normal: ', num_normal)
                 print('Num attack: ', num_attack)
 
-                if (epoch + 1) % 5 == 0:
+                if (epoch + 1) % 2 == 0:
                     print("Runing on validation...----------------")
                     acc_known, precision_known, recall_known, f1_known = self.get_val_acc(self.validation_size, self.batch_size, validation, sess)
                     print("Accuracy on Known attack: {}".format(acc_known))
@@ -305,16 +304,23 @@ class Model:
                     print("Recall on Known attack: {}".format(recall_known))
                     print("F1 on Known attack: {}".format(f1_known))
                     
+                    accs['known'].append(acc_known)
+                    f1s['known'].append(f1_known)
+                    
                     if self.unknown_attack != None:
                         acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
                         print("Accuracy on unKnown attack: {}".format(acc_unknown))
                         print("Precision on unKnown attack: {}".format(precision_unknown))
                         print("Recall on unKnown attack: {}".format(recall_unknown))
                         print("F1 on unKnown attack: {}".format(f1_unknown))
+                        accs['unknown'].append(acc_unknown)
+                        f1s['unknown'].append(f1_unknown)
                     
                     print('Save model')
                     saver.save(sess, save_path=saved_model_path, global_step=step)
-                    
+            with open(log_path + '/sum_val.txt', 'w') as summary:
+                summary.write(json.dumps(accs))
+                summary.write(json.dumps(f1s))
 
     def test(self, results_path, unknown_test = False):
         self.build()
