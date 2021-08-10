@@ -210,7 +210,15 @@ class Model:
         last_improvement = 0
         require_improvement = 20
         
-
+        accs = {
+            'known': [],
+            'unknown': []
+        }
+        
+        f1s = {
+            'known:': [],
+            'unknown': []
+        }
         with tf.Session() as sess:
             tensorboard_path, saved_model_path, log_path = form_results(self.model_name, self.results_path, self.z_dim, self.supervised_lr, self.batch_size, self.n_epochs, self.beta1)
             sess.run(init)
@@ -275,22 +283,30 @@ class Model:
                 print('Num normal: ', num_normal)
                 print('Num attack: ', num_attack)
 
-                if (epoch + 1) % 5 == 0:
+                if (epoch + 1) % 2 == 0:
                     print("Runing on validation...----------------")
                     acc_known, precision_known, recall_known, f1_known = self.get_val_acc(self.validation_size, self.batch_size, validation, sess)
                     print("Accuracy on Known attack: {}".format(acc_known))
                     print("Precision on Known attack: {}".format(precision_known))
                     print("Recall on Known attack: {}".format(recall_known))
                     print("F1 on Known attack: {}".format(f1_known))
+                    accs['known'].append(acc_known)
+                    f1s['known'].append(f1_known)
                     
                     acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
                     print("Accuracy on unKnown attack: {}".format(acc_unknown))
                     print("Precision on unKnown attack: {}".format(precision_unknown))
                     print("Recall on unKnown attack: {}".format(recall_unknown))
                     print("F1 on unKnown attack: {}".format(f1_unknown))
+                    accs['unknown'].append(acc_unknown)
+                    f1s['unknown'].append(f1_unknown)
                     
                     print('Save model')
                     saver.save(sess, save_path=saved_model_path, global_step=step)
+            
+            with open(log_path + '/sum_val.txt', 'w') as summary:
+                summary.write(accs)
+                summary.write(f1s)
                     
 
     def test(self, results_path, unknown_test = False):
