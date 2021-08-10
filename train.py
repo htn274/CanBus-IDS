@@ -46,7 +46,7 @@ class Model:
         "validation": 0, 
         "test": 0
         }
-        self.labels = ['DoS_50', 'Fuzzy', 'gear', 'RPM', 'Normal']
+        self.labels = ['DoS', 'Fuzzy', 'gear', 'RPM', 'Normal']
         for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l != self.unknown_attack]:
             data_read = json.load(open(f))
             for key in self.data_info.keys():
@@ -214,9 +214,8 @@ class Model:
             'known': [],
             'unknown': []
         }
-        
         f1s = {
-            'known:': [],
+            'known': [],
             'unknown': []
         }
         with tf.Session() as sess:
@@ -305,8 +304,8 @@ class Model:
                     saver.save(sess, save_path=saved_model_path, global_step=step)
             
             with open(log_path + '/sum_val.txt', 'w') as summary:
-                summary.write(accs)
-                summary.write(f1s)
+                summary.write(json.dumps(accs))
+                summary.write(json.dumps(f1s))
                     
 
     def test(self, results_path, unknown_test = False):
