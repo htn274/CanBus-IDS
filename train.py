@@ -6,6 +6,7 @@ import pandas as pd
 import json
 import glob
 import tqdm
+import os
 from utils import *
 from AAE import AAE
 from CAAE import CAAE
@@ -15,6 +16,7 @@ tf.config.experimental.set_memory_growth(gpus[0], True)
 
 class Model:
     def __init__(self, model='AAE', unknown_attack=None, input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
+        self.is_build = False
         self.unknown_attack = unknown_attack
         self.read_datainfo()
         self.input_dim = input_dim
@@ -99,6 +101,7 @@ class Model:
     
     def build(self):
         #Define place holder
+        self.is_build = True
         self.x_input = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Input')
         self.x_input_l = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Labeled_Input')
         self.y_input = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.n_labels], name='Labels')
@@ -206,7 +209,8 @@ class Model:
         
     def train(self):
         train_unlabel, train_label, validation = self.construct_data_flow()
-        self.build()
+        if not self.is_build:
+            self.build()
         init = tf.global_variables_initializer()
         # Tensorboard visualization
         tf.summary.scalar(name='Autoencoder Loss', tensor=self.autoencoder_loss)
@@ -322,8 +326,9 @@ class Model:
                 summary.write(json.dumps(accs))
                 summary.write(json.dumps(f1s))
 
-    def test(self, results_path, unknown_test = False):
-        self.build()
+    def test(self, results_path, unknown_test):
+        if not self.is_build:
+            self.build()
         init = tf.global_variables_initializer()
         saver = tf.train.Saver()
         if unknown_test:
@@ -334,30 +339,45 @@ class Model:
                 test_size += data_read['test']
         else:
             test_size = self.data_info['test']
-            data_path = ['./Data/{}/'.format(a) for a in self.labels]
+            data_path = ['./Data/{}/'.format(a) for a in self.labels if a != self.unknown_attack]
         # results_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
         print('Test data: ', data_path)
         with tf.Session() as sess:
             saver.restore(sess, save_path=tf.train.latest_checkpoint(results_path + '/Saved_models'))
-            test = data_from_tfrecord([p + 'test' for p in data_path], self.batch_size, 1)
+            test = data_from_tfrecord(tf_filepath=[p + 'test' for p in data_path], batch_size=self.batch_size, repeat_time=1, shuffle=False)
             num_batches = int(test_size / self.batch_size)
             y_true = np.empty((0), int)
             y_pred = np.empty((0), int)
+            raw_pred = np.empty((0, self.n_labels), int)
             total_prob = np.empty((0), float)
             total_latent = np.empty((0, self.z_dim), float)
             
             for _ in tqdm.tqdm(range(num_batches)):
                 x_test, y_test = data_stream(test, sess)
-                batch_pred, batch_latent = sess.run([self.output_label, self.encoder_output_latent_], feed_dict={self.x_input_l: x_test})
+                batch_raw_pred, batch_pred, batch_latent = sess.run([self.encoder_output_label_, self.output_label, self.encoder_output_latent_], feed_dict={self.x_input_l: x_test})
                 total_latent = np.append(total_latent, batch_latent, axis=0)
                 batch_label = np.argmax(y_test, axis=1).reshape((self.batch_size))
                 #prob = np.max(batch_pred, axis=1).reshape((self.batch_size))
                 #batch_pred = np.argmax(batch_pred, axis=1).reshape((self.batch_size))
+                raw_pred = np.append(raw_pred, batch_raw_pred, axis=0)
                 y_pred = np.append(y_pred, batch_pred, axis=0)
                 y_true = np.append(y_true, batch_label, axis=0) 
                 #total_prob = np.append(total_prob, prob, axis=0)
                 
-        evaluate(y_true, y_pred)
+        # evaluate(y_true, y_pred)
+        return raw_pred, y_pred, y_true
+    
+    def ensemble_predict(self, model_dir, unknown_test):
+        model_paths = [f for f in os.listdir(model_dir) if not f.startswith('.')]
+        ensemble_pred = []
+        for model_path in model_paths:
+            print(model_path)
+            pred, _, y_true = self.test(model_dir + model_path, unknown_test=unknown_test)
+            ensemble_pred.append(pred)
+        ensemble_pred = np.mean(ensemble_pred, axis=0)
+        ensemble_pred = np.argmax(ensemble_pred, axis=1)
+        evaluate(y_true, ensemble_pred)
+        return ensemble_pred, y_true
                     
 if __name__ == '__main__':
     #python3 train.py --unknown_attack 'DoS' --model "CAAE" --batch_size 64 --is_train
@@ -379,4 +399,7 @@ if __name__ == '__main__':
         else:
             #res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
             #res_path = './Results/unknown/DoS/2021-07-21 15:02:31.836424_10_0.0001_100_300_0.9_Semi_Supervised/'
-            model.test(args.res_path, unknown_test=True)
+            print('Result Unknown Attack:')
+            model.ensemble_predict(args.res_path, unknown_test=True)
+            print('Result Known Attack:')
+            model.ensemble_predict(args.res_path, unknown_test=False)

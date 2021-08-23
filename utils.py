@@ -13,10 +13,11 @@ def read_tfrecord(example):
     }
     return tf.io.parse_single_example(example, feature_description)
 
-def data_from_tfrecord(tf_filepath, batch_size, repeat_time):
+def data_from_tfrecord(tf_filepath, batch_size, repeat_time, shuffle=True):
     data = tf.data.Dataset.from_tensor_slices(tf_filepath)
     data = data.interleave(lambda x: tf.data.TFRecordDataset(x),cycle_length=len(tf_filepath), block_length=10000)
-    data = data.shuffle(100000, reshuffle_each_iteration=True)
+    if shuffle:
+        data = data.shuffle(100000, reshuffle_each_iteration=True)
     data = data.map(read_tfrecord, num_parallel_calls=64)
     data = data.repeat(repeat_time + 1)
     data = data.batch(batch_size)
