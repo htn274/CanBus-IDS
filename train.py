@@ -111,11 +111,12 @@ class Model:
                                                  name='Categorical_distribution')
         self.manual_decoder_input = tf.placeholder(dtype=tf.float32, shape=[1, self.z_dim + self.n_labels], name='Decoder_input')
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
+        self.keep_prob = tf.placeholder(tf.float32, shape=[])
         # Reconstruction Phase
         # Encoder try to predict both label and latent space of the input, which will be feed into Decoder to reconstruct the input
         # The process is optimized by autoencoder_loss which is the MSE of the decoder_output and the orginal input
         with (tf.variable_scope(tf.get_variable_scope())):
-            self.encoder_output_label, self.encoder_output_latent = self.model.encoder(self.x_input)
+            self.encoder_output_label, self.encoder_output_latent = self.model.encoder(self.x_input, self.keep_prob)
             decoder_input = tf.concat([self.encoder_output_label, self.encoder_output_latent], 1)
             decoder_output = self.model.decoder(decoder_input)
 
@@ -172,7 +173,7 @@ class Model:
         # Semi-Supervised Classification Phase
         # Train encoder with a small amount of label samples
         with tf.variable_scope(tf.get_variable_scope()):
-            self.encoder_output_label_, self.encoder_output_latent_ = self.model.encoder(self.x_input_l, reuse=True, supervised=True)
+            self.encoder_output_label_, self.encoder_output_latent_ = self.model.encoder(self.x_input_l, self.keep_prob, reuse=True, supervised=True)
 
         # Classification accuracy of encoder
         self.output_label = tf.argmax(self.encoder_output_label_, 1)
@@ -190,7 +191,7 @@ class Model:
         num_batches = int(val_size/batch_size)
         for j in tqdm.tqdm(range(num_batches)):
             batch_x_l, batch_y_l = data_stream(tfdata, sess)
-            batch_pred = sess.run(self.output_label, feed_dict={self.x_input_l: batch_x_l, self.y_input: batch_y_l})
+            batch_pred = sess.run(self.output_label, feed_dict={self.x_input_l: batch_x_l, self.y_input: batch_y_l, self.keep_prob: 1.0})
 
             batch_label = np.argmax(batch_y_l, axis=1)
             y_pred += batch_pred.tolist()
@@ -205,7 +206,7 @@ class Model:
         recall = 1 - fnr
         f1 = (2 * precision * recall) / (precision + recall)
 
-        return avg_acc, precision, recall, f1
+        return avg_acc, fnr, err, precision, recall, f1
         
     def train(self):
         train_unlabel, train_label, validation = self.construct_data_flow()
@@ -229,8 +230,8 @@ class Model:
         saver = tf.train.Saver()
         step = 0
         # Early stopping
-        save_sess = None
-        best_acc = 1
+        best_sess = None
+        best_f1 = 0.0
         stop = False
         last_improvement = 0
         require_improvement = 20
@@ -250,7 +251,7 @@ class Model:
             sess.run(init)
             writer = tf.summary.FileWriter(logdir=tensorboard_path, graph=sess.graph)
             for epoch in range(self.n_epochs):
-                if epoch == 50:
+                if epoch == 100:
                     self.supervised_lr /= 10
                     self.reconstruction_lr /= 10
                     self.regularization_lr /= 10
@@ -269,24 +270,29 @@ class Model:
                     num_normal += (np.argmax(batch_y_ul, axis=1) == 0).sum()
                     num_attack += (np.argmax(batch_y_ul, axis=1) == 1).sum()
 
-                    sess.run(self.autoencoder_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.learning_rate: self.reconstruction_lr})
+                    sess.run(self.autoencoder_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, 
+                                                                    self.learning_rate: self.reconstruction_lr, self.keep_prob: 0.75})
                     for _ in range(self.num_critic):
                         sess.run(self.discriminator_g_optimizer,
-                                 feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.real_distribution: z_real_dist, self.learning_rate: self.regularization_lr})
+                                 feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.real_distribution: z_real_dist, 
+                                            self.learning_rate: self.regularization_lr, self.keep_prob: 0.75})
                         sess.run(self.discriminator_c_optimizer,
                                  feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul,
-                                            self.categorial_distribution: real_cat_dist, self.learning_rate: self.regularization_lr})
-                    sess.run(self.generator_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, self.learning_rate: self.regularization_lr})
+                                            self.categorial_distribution: real_cat_dist, self.learning_rate: self.regularization_lr, self.keep_prob: 0.75})
+                    
+                    sess.run(self.generator_optimizer, feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul, 
+                                                                  self.learning_rate: self.regularization_lr, self.keep_prob: 0.75})
 
 
-                    sess.run(self.supervised_encoder_optimizer, feed_dict={self.x_input_l: batch_x_l, self.y_input: batch_y_l, self.learning_rate: self.supervised_lr})
+                    sess.run(self.supervised_encoder_optimizer, feed_dict={self.x_input_l: batch_x_l, self.y_input: batch_y_l, 
+                                                                           self.learning_rate: self.supervised_lr, self.keep_prob: 0.75})
                     if b % 10 == 0:
                         a_loss, d_g_loss, d_c_loss, g_loss, s_loss, summary = sess.run(
                             [self.autoencoder_loss, self.dc_g_loss, self.dc_c_loss, self.generator_loss, self.supervised_encoder_loss,
                              self.summary_op],
                             feed_dict={self.x_input: batch_x_ul, self.x_target: batch_x_ul,
                                        self.real_distribution: z_real_dist, self.y_input: batch_y_l, self.x_input_l: batch_x_l,
-                                       self.categorial_distribution: real_cat_dist})
+                                       self.categorial_distribution: real_cat_dist, self.keep_prob: 0.75})
                         writer.add_summary(summary, global_step=step)
                         with open(log_path + '/log.txt', 'a') as log:
                             log.write("Epoch: {}, iteration: {}\n".format(epoch, b))
@@ -311,6 +317,11 @@ class Model:
                     accs['known'].append(acc_known)
                     f1s['known'].append(f1_known)
                     
+                    if f1_known > best_f1:
+                        best_sess = sess
+                    elif (epoch + 1) == self.n_epochs:
+                        sess = best_sess
+                        
                     if self.unknown_attack != None:
                         acc_unknown, precision_unknown, recall_unknown, f1_unknown = self.get_val_acc(self.validation_unknown_size, self.batch_size, self.validation_unknown, sess)
                         print("Accuracy on unKnown attack: {}".format(acc_unknown))
@@ -322,6 +333,7 @@ class Model:
                     
                     print('Save model')
                     saver.save(sess, save_path=saved_model_path, global_step=step)
+                    
             with open(log_path + '/sum_val.txt', 'w') as summary:
                 summary.write(json.dumps(accs))
                 summary.write(json.dumps(f1s))
