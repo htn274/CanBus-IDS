@@ -8,6 +8,7 @@ import glob
 import tqdm
 import os
 from utils import *
+import timeit
 from AAE import AAE
 from CAAE import CAAE
 import argparse
@@ -366,7 +367,7 @@ class Model:
             
             for _ in tqdm.tqdm(range(num_batches)):
                 x_test, y_test = data_stream(test, sess)
-                batch_raw_pred, batch_pred, batch_latent = sess.run([self.encoder_output_label_, self.output_label, self.encoder_output_latent_], feed_dict={self.x_input_l: x_test})
+                batch_raw_pred, batch_pred, batch_latent = sess.run([self.encoder_output_label_, self.output_label, self.encoder_output_latent_], feed_dict={self.x_input_l: x_test, self.keep_prob: 1.0})
                 total_latent = np.append(total_latent, batch_latent, axis=0)
                 batch_label = np.argmax(y_test, axis=1).reshape((self.batch_size))
                 #prob = np.max(batch_pred, axis=1).reshape((self.batch_size))
@@ -376,7 +377,7 @@ class Model:
                 y_true = np.append(y_true, batch_label, axis=0) 
                 #total_prob = np.append(total_prob, prob, axis=0)
                 
-        # evaluate(y_true, y_pred)
+        evaluate(y_true, y_pred)
         return raw_pred, y_pred, y_true
     
     def ensemble_predict(self, model_dir, unknown_test):
@@ -390,6 +391,21 @@ class Model:
         ensemble_pred = np.argmax(ensemble_pred, axis=1)
         evaluate(y_true, ensemble_pred)
         return ensemble_pred, y_true
+    
+    def timing(self, x, model_path, use_gpu=False):
+        if use_gpu:
+            sess = tf.Session()
+        else:
+            sess = tf.Session(config=tf.ConfigProto(device_count={'GPU': 0}))
+        if not self.is_build:
+            self.build()
+        init = tf.global_variables_initializer()
+        saver = tf.train.Saver()
+        saver.restore(sess, save_path=tf.train.latest_checkpoint(model_path))
+        start = timeit.default_timer()
+        y_pred = sess.run([self.output_label], feed_dict={self.x_input_l: x, self.keep_prob: 1.0})
+        end = timeit.default_timer()
+        return end - start
                     
 if __name__ == '__main__':
     #python3 train.py --unknown_attack 'DoS' --model "CAAE" --batch_size 64 --is_train
@@ -411,7 +427,8 @@ if __name__ == '__main__':
         else:
             #res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
             #res_path = './Results/unknown/DoS/2021-07-21 15:02:31.836424_10_0.0001_100_300_0.9_Semi_Supervised/'
-            print('Result Unknown Attack:')
-            model.ensemble_predict(args.res_path, unknown_test=True)
-            print('Result Known Attack:')
-            model.ensemble_predict(args.res_path, unknown_test=False)
+            model.test(args.res_path, unknown_test=False)
+#             print('Result Unknown Attack:')
+#             model.ensemble_predict(args.res_path, unknown_test=True)
+#             print('Result Known Attack:')
+#             model.ensemble_predict(args.res_path, unknown_test=False)
