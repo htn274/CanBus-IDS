@@ -16,9 +16,10 @@ gpus= tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
 class Model:
-    def __init__(self, model='AAE', unknown_attack=None, input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
+    def __init__(self, model='AAE', data_dir='./Data/', unknown_attack=None, input_dim=29*29, z_dim=10, batch_size=100, n_epochs=100, supervised_lr=0.0001, reconstruction_lr=0.0001, regularization_lr=0.0001):
         self.is_build = False
         self.unknown_attack = unknown_attack
+        self.data_dir = data_dir
         self.read_datainfo()
         self.input_dim = input_dim
         self.n_l1 = 1000
@@ -53,7 +54,7 @@ class Model:
         "test": 0
         }
         self.labels = ['DoS', 'Fuzzy', 'gear', 'RPM', 'Normal']
-        for f in ['./Data/{}/datainfo.txt'.format(l) for l in self.labels if l != self.unknown_attack]:
+        for f in ['{}/{}/datainfo.txt'.format(self.data_dir, l) for l in self.labels if l != self.unknown_attack]:
             data_read = json.load(open(f))
             for key in self.data_info.keys():
                 self.data_info[key] += data_read[key]
@@ -67,10 +68,10 @@ class Model:
         print('Data info: ', self.data_info)
         
     def construct_data_flow(self):
-        train_unlabel_paths = ['./Data/{}/train_unlabel'.format(l) for l in self.labels]
+        train_unlabel_paths = ['{}/{}/train_unlabel'.format(self.data_dir, l) for l in self.labels]
         #unknown_train_unlabel_path = ['./Data/{}/train_unlabel'.format(self.unknown_attack)]
-        train_label_paths = ['./Data/{}/train_label'.format(l) for l in self.labels if l != self.unknown_attack]
-        val_paths = ['./Data/{}/val'.format(l) for l in self.labels if l != self.unknown_attack]
+        train_label_paths = ['{}/{}/train_label'.format(self.data_dir, l) for l in self.labels if l != self.unknown_attack]
+        val_paths = ['{}/{}/val'.format(self.data_dir, l) for l in self.labels if l != self.unknown_attack]
         
         print('Unlabeled data: ', train_unlabel_paths)
         print('Label data:', train_label_paths)
@@ -81,8 +82,8 @@ class Model:
         validation = data_from_tfrecord(val_paths, self.batch_size, self.n_epochs)
         
         if self.unknown_attack != None:
-            val_unknown_path = ['./Data/{}/val'.format(a) for a in [self.unknown_attack, 'Normal']]
-            data_info_unknown_attack = json.load(open('./Data/{}/datainfo.txt'.format(self.unknown_attack)))
+            val_unknown_path = ['{}/{}/val'.format(self.data_dir, a) for a in [self.unknown_attack, 'Normal']]
+            data_info_unknown_attack = json.load(open('{}/{}/datainfo.txt'.format(self.data_dir, self.unknown_attack)))
             self.validation_unknown_size = data_info_unknown_attack['validation']
             self.validation_unknown = data_from_tfrecord(val_unknown_path, self.batch_size, self.n_epochs) 
         
@@ -207,7 +208,7 @@ class Model:
         recall = 1 - fnr
         f1 = (2 * precision * recall) / (precision + recall)
 
-        return avg_acc, fnr, err, precision, recall, f1
+        return avg_acc, precision, recall, f1
         
     def train(self):
         train_unlabel, train_label, validation = self.construct_data_flow()
@@ -252,10 +253,10 @@ class Model:
             sess.run(init)
             writer = tf.summary.FileWriter(logdir=tensorboard_path, graph=sess.graph)
             for epoch in range(self.n_epochs):
-                if epoch == 100:
-                    self.supervised_lr /= 10
-                    self.reconstruction_lr /= 10
-                    self.regularization_lr /= 10
+                if epoch == 50:
+                    self.supervised_lr /= 5
+                    self.reconstruction_lr /= 5
+                    self.regularization_lr /= 5
                 n_batches = int(self.n_labeled / self.batch_size)
                 num_normal = 0 
                 num_attack = 0
@@ -345,14 +346,14 @@ class Model:
         init = tf.global_variables_initializer()
         saver = tf.train.Saver()
         if unknown_test:
-            data_path = ['./Data/{}/'.format(a) for a in [self.unknown_attack, 'Normal']]
+            data_path = ['{}/{}/'.format(self.data_dir, a) for a in [self.unknown_attack, 'Normal']]
             test_size = 0
             for f in ['{}/datainfo.txt'.format(p) for p in data_path]:
                 data_read = json.load(open(f))
                 test_size += data_read['test']
         else:
             test_size = self.data_info['test']
-            data_path = ['./Data/{}/'.format(a) for a in self.labels if a != self.unknown_attack]
+            data_path = ['{}/{}/'.format(self.data_dir, a) for a in self.labels if a != self.unknown_attack]
         # results_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
         print('Test data: ', data_path)
         with tf.Session() as sess:
@@ -412,13 +413,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--res_path', type=str, default=None)
     parser.add_argument('--model', type=str, default="CAAE")
+    parser.add_argument('--data_dir', type=str, default="./Data/")
     parser.add_argument('--unknown_attack', type=str, default=None)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--is_train', action='store_true')
     args = parser.parse_args()
     
-    model = Model(model=args.model, unknown_attack = args.unknown_attack, batch_size=args.batch_size, n_epochs=args.epochs)
+    model = Model(model=args.model, data_dir=args.data_dir, unknown_attack = args.unknown_attack, batch_size=args.batch_size, n_epochs=args.epochs)
     if args.is_train:
         model.train()
     else:
