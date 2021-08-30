@@ -38,7 +38,7 @@ def form_results(model_name, results_path, z_dim, supervised_lr, batch_size, n_e
     Forms folders for each run to store the tensorboard files, saved models and the log files.
     :return: three string pointing to tensorboard, saved models and log paths respectively.
     """
-    folder_name = "/{0}_{1}_{2}_{3}_{4}_{5}_{6}_Semi_Supervised". \
+    folder_name = "/{0}_{1}_{2}_{3}_{4}_{5}_{6}". \
         format(model_name, datetime.datetime.now(), z_dim, supervised_lr, batch_size, n_epochs, beta1)
     tensorboard_path = results_path + folder_name + '/Tensorboard'
     saved_model_path = results_path + folder_name + '/Saved_models/'

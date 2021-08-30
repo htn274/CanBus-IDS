@@ -254,9 +254,9 @@ class Model:
             writer = tf.summary.FileWriter(logdir=tensorboard_path, graph=sess.graph)
             for epoch in range(self.n_epochs):
                 if epoch == 50:
-                    self.supervised_lr /= 5
-                    self.reconstruction_lr /= 5
-                    self.regularization_lr /= 5
+                    self.supervised_lr /= 10
+                    self.reconstruction_lr /= 10
+                    self.regularization_lr /= 10
                 n_batches = int(self.n_labeled / self.batch_size)
                 num_normal = 0 
                 num_attack = 0
@@ -430,6 +430,7 @@ if __name__ == '__main__':
             #res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
             #res_path = './Results/unknown/DoS/2021-07-21 15:02:31.836424_10_0.0001_100_300_0.9_Semi_Supervised/'
             model.test(args.res_path, unknown_test=False)
+            model.test(args.res_path, unknown_test=True)
 #             print('Result Unknown Attack:')
 #             model.ensemble_predict(args.res_path, unknown_test=True)
 #             print('Result Known Attack:')
