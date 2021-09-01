@@ -24,7 +24,7 @@ class CAAE:
             out = tf.add(tf.matmul(x, weights), bias, name='matmul')
             return out
         
-    def encoder(self, x, reuse=False, supervised=False):
+    def encoder(self, x, keep_prob, reuse=False, supervised=False):
         if reuse:
             tf.get_variable_scope().reuse_variables()
         with tf.name_scope('Encoder'):
@@ -34,23 +34,26 @@ class CAAE:
             #print('Input encoder: ', x_input.shape)
             conv1 = conv2d(x_input, name='e_conv1', kshape=[3, 3, 1, 32]) #[32, 32, 1] -> [32, 32, 32]
             pool1 = maxpool2d(conv1, name='e_pool1') # [32, 32 32] -> [16, 16, 32]
-            drop1 = dropout(pool1, name='e_drop1', keep_rate=0.75)
+            #drop1 = dropout(pool1, name='e_drop1', keep_rate=0.75)
 
-            conv2 = conv2d(drop1, name='e_conv2', kshape=[3, 3, 32, 32]) #[16, 16, 32] -> [16, 16, 32]
+            conv2 = conv2d(pool1, name='e_conv2', kshape=[3, 3, 32, 32]) #[16, 16, 32] -> [16, 16, 32]
             pool2 = maxpool2d(conv2, name='e_pool2') # [16, 16, 32] -> [8, 8, 32]
-            drop2 = dropout(pool2, name='e_drop2', keep_rate=0.75)
+            #drop2 = dropout(pool2, name='e_drop2', keep_rate=0.75)
 
-            conv3 = conv2d(drop2, name='e_conv3', kshape=[3, 3, 32, 64]) #[8, 8, 32] -> [8, 8, 64]
+            conv3 = conv2d(pool2, name='e_conv3', kshape=[3, 3, 32, 64]) #[8, 8, 32] -> [8, 8, 64]
             pool3 = maxpool2d(conv3, name='e_pool3') # [8, 8, 64] -> [4, 4, 64]
-            drop3 = dropout(pool3, name='e_drop3', keep_rate=0.75)
+            #drop3 = dropout(pool3, name='e_drop3', keep_rate=0.75)
 
-            conv4 = conv2d(drop3, name='e_conv4', kshape=[3, 3, 64, 64]) #[4, 4, 64] -> [4, 4, 64]
+            conv4 = conv2d(pool3, name='e_conv4', kshape=[3, 3, 64, 64]) #[4, 4, 64] -> [4, 4, 64]
             pool4 = maxpool2d(conv4, name='e_pool4') # [4, 4, 64] -> [2, 2, 64]
-            #pool4 = tf.reshape(pool4, shape=[-1, 2 * 2 * 64])
+            drop4 = dropout(pool4, name='e_drop4', keep_rate=keep_prob)
+            # pool4 = tf.reshape(pool4, shape=[-1, 2 * 2 * 64])
 
             #print('Last CNN encoder: ', pool4.shape)
-            latent_variable = fullyConnected(pool4, name='e_latent_variable', output_size=self.z_dim)
-            cat_op = fullyConnected(pool4, name='e_label', output_size=self.n_labels)
+            # latent_variable = self.dense(pool4, 256, self.z_dim, name='e_latent_variable')
+            # cat_op = self.dense(pool4, 256, self.n_labels, name='e_label')
+            latent_variable = fullyConnected(drop4, name='e_latent_variable', output_size=self.z_dim)
+            cat_op = fullyConnected(drop4, name='e_label', output_size=self.n_labels)
 
             if not supervised:
                 softmax_label = tf.nn.softmax(logits=cat_op, name='e_softmax_label')
@@ -132,7 +135,7 @@ class CAAE:
             dc_den1 = tf.nn.relu(self.dense(x, self.z_dim, 1000, name='dc_g_den1'))
             dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_g_den2'))
             output = self.dense(dc_den2, 1000, 1, name='dc_g_output')
-            return output
+            return tf.nn.sigmoid(output)
 
     def discriminator_categorical(self, x, reuse=False):
         """
@@ -148,4 +151,4 @@ class CAAE:
             dc_den1 = tf.nn.relu(self.dense(x, self.n_labels, 1000, name='dc_c_den1'))
             dc_den2 = tf.nn.relu(self.dense(dc_den1, 1000, 1000, name='dc_c_den2'))
             output = self.dense(dc_den2, 1000, 1, name='dc_c_output')
-            return output
+            return tf.nn.sigmoid(output)

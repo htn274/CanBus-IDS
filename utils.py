@@ -13,10 +13,11 @@ def read_tfrecord(example):
     }
     return tf.io.parse_single_example(example, feature_description)
 
-def data_from_tfrecord(tf_filepath, batch_size, repeat_time):
+def data_from_tfrecord(tf_filepath, batch_size, repeat_time, shuffle=True):
     data = tf.data.Dataset.from_tensor_slices(tf_filepath)
     data = data.interleave(lambda x: tf.data.TFRecordDataset(x),cycle_length=len(tf_filepath), block_length=10000)
-    data = data.shuffle(100000, reshuffle_each_iteration=True)
+    if shuffle:
+        data = data.shuffle(100000, reshuffle_each_iteration=True)
     data = data.map(read_tfrecord, num_parallel_calls=64)
     data = data.repeat(repeat_time + 1)
     data = data.batch(batch_size)
@@ -37,7 +38,7 @@ def form_results(model_name, results_path, z_dim, supervised_lr, batch_size, n_e
     Forms folders for each run to store the tensorboard files, saved models and the log files.
     :return: three string pointing to tensorboard, saved models and log paths respectively.
     """
-    folder_name = "/{0}_{1}_{2}_{3}_{4}_{5}_{6}_Semi_Supervised". \
+    folder_name = "/{0}_{1}_{2}_{3}_{4}_{5}_{6}". \
         format(model_name, datetime.datetime.now(), z_dim, supervised_lr, batch_size, n_epochs, beta1)
     tensorboard_path = results_path + folder_name + '/Tensorboard'
     saved_model_path = results_path + folder_name + '/Saved_models/'

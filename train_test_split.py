@@ -35,7 +35,7 @@ def data_from_tfrecord(tf_filepath, batch_size, repeat_time):
     data = tf.data.TFRecordDataset(tf_filepath)
     data = data.map(read_tfrecord)
     data = data.shuffle(2)
-    data = data.repeat(repeat_time + 1)
+    data = data.repeat(repeat_time)
     data = data.batch(batch_size)
     # print(tf.data.experimental.cardinality(data))
     iterator = data.make_one_shot_iterator()
@@ -73,7 +73,7 @@ def train_test_split(source_path, dest_path, DATASET_SIZE,\
     train_label_size = int(train_size * train_label_ratio)
     val_size = int(DATASET_SIZE * val_ratio)
     test_size = int(DATASET_SIZE * test_ratio)
-    
+
     print(train_label_size, train_size, val_size, test_size)
     
     dataset = tf.data.TFRecordDataset(source_path)
@@ -114,7 +114,7 @@ def main_attack(indir, outdir, attack_types):
         dest = '{}/{}/'.format(outdir, attack)
         if not os.path.exists(dest):
             os.makedirs(dest)
-        train_test_split(source, dest, data_info[source])
+        train_test_split(source, dest, data_info[source], train_label_ratio=0.5, train_ratio=0.1, val_ratio=0.2, test_ratio=0.3)
         
 def main_normal(indir, outdir, attack_types):
     normal_size = 0

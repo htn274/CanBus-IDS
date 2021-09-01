@@ -1,3 +1,5 @@
 Results/
 Data/
 IDS_AAE.zip
+.ipynb_checkpoints/
+__pycache__/
