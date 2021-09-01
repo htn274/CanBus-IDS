@@ -5,15 +5,15 @@ from utils import *
 import logging
 logging.getLogger('tensorflow').disabled = True
 
-batch_size=256
+batch_size=32
 model = Model(model='CAAE', data_dir='./Data/Train_0.3_Labeled_0.1/', batch_size=batch_size)
 tf_data = data_from_tfrecord(['./Data/Train_0.3_Labeled_0.1/DoS/test'], batch_size, 1)
 sess_cpu = tf.Session(config=tf.ConfigProto(device_count={'GPU':0}))
 x, y = data_stream(tf_data, sess_cpu)
 
 model_path = './Results/all/0.3_CNN_WGAN_2021-08-27 20:17:51.691776_10_0.0001_64_300_0.5_Semi_Supervised/Saved_models/'
-time = []
-for _ in range(10):
-    time.append(model.timing(x, model_path, use_gpu=True))
+time = model.timing(x, model_path, use_gpu=True)
+# for _ in range(30):
+#     time.append(model.timing(x, model_path, use_gpu=False))
 print(time)
-print('Average test time for 1 sample: {}ms'.format(np.mean(time[1:])*1000))
+print('Average test time for {} sample: {}ms'.format(batch_size, np.mean(time)*1000))

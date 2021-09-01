@@ -91,7 +91,7 @@ class Model:
         
     
     def gradient_penalty(self, real_samples, g_samples, discriminator):
-        alpha = tf.random_uniform(shape=[self.batch_size, 1], minval=0., maxval=1.)
+        alpha = tf.random.uniform(shape=[self.batch_size, 1], minval=0., maxval=1.)
         differences = g_samples - real_samples
         interpolates = real_samples + (alpha * differences)
         print('Variable scope Gradient: ', tf.get_variable_scope())
@@ -104,16 +104,16 @@ class Model:
     def build(self):
         #Define place holder
         self.is_build = True
-        self.x_input = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Input')
-        self.x_input_l = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Labeled_Input')
-        self.y_input = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.n_labels], name='Labels')
-        self.x_target = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.input_dim], name='Target')
-        self.real_distribution = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.z_dim], name='Real_distribution')
-        self.categorial_distribution = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, self.n_labels],
+        self.x_input = tf.placeholder(dtype=tf.float32, shape=[None, self.input_dim], name='Input')
+        self.x_input_l = tf.placeholder(dtype=tf.float32, shape=[None, self.input_dim], name='Labeled_Input')
+        self.y_input = tf.placeholder(dtype=tf.float32, shape=[None, self.n_labels], name='Labels')
+        self.x_target = tf.placeholder(dtype=tf.float32, shape=[None, self.input_dim], name='Target')
+        self.real_distribution = tf.placeholder(dtype=tf.float32, shape=[None, self.z_dim], name='Real_distribution')
+        self.categorial_distribution = tf.placeholder(dtype=tf.float32, shape=[None, self.n_labels],
                                                  name='Categorical_distribution')
         self.manual_decoder_input = tf.placeholder(dtype=tf.float32, shape=[1, self.z_dim + self.n_labels], name='Decoder_input')
-        self.learning_rate = tf.placeholder(tf.float32, shape=[])
-        self.keep_prob = tf.placeholder(tf.float32, shape=[])
+        self.learning_rate = tf.placeholder(tf.float32, shape=[], name='learning_rate')
+        self.keep_prob = tf.placeholder(tf.float32, shape=[], name='keep_prob')
         # Reconstruction Phase
         # Encoder try to predict both label and latent space of the input, which will be feed into Decoder to reconstruct the input
         # The process is optimized by autoencoder_loss which is the MSE of the decoder_output and the orginal input
@@ -214,6 +214,9 @@ class Model:
         train_unlabel, train_label, validation = self.construct_data_flow()
         if not self.is_build:
             self.build()
+        all_variables = tf.trainable_variables()
+#         print([n.name for n in tf.get_default_graph().as_graph_def().node if 'e_label' in n.name])
+#         return
         init = tf.global_variables_initializer()
         # Tensorboard visualization
         tf.summary.scalar(name='Autoencoder Loss', tensor=self.autoencoder_loss)
@@ -393,9 +396,9 @@ class Model:
         evaluate(y_true, ensemble_pred)
         return ensemble_pred, y_true
     
-    def timing(self, x, model_path, use_gpu=False):
+    def timing(self, x, model_path, num_loop= 100, use_gpu=False):
         if use_gpu:
-            sess = tf.Session()
+            sess = tf.Session(config=tf.ConfigProto(device_count={'GPU': 1}))
         else:
             sess = tf.Session(config=tf.ConfigProto(device_count={'GPU': 0}))
         if not self.is_build:
@@ -403,10 +406,16 @@ class Model:
         init = tf.global_variables_initializer()
         saver = tf.train.Saver()
         saver.restore(sess, save_path=tf.train.latest_checkpoint(model_path))
-        start = timeit.default_timer()
+        # For warm-up
         y_pred = sess.run([self.output_label], feed_dict={self.x_input_l: x, self.keep_prob: 1.0})
-        end = timeit.default_timer()
-        return end - start
+        time = []
+        for _ in range(num_loop):
+            start = timeit.default_timer()
+            y_pred = sess.run([self.output_label], feed_dict={self.x_input_l: x, self.keep_prob: 1.0})
+            _ = np.array(y_pred)
+            end = timeit.default_timer()
+            time.append(end - start)
+        return time
                     
 if __name__ == '__main__':
     #python3 train.py --unknown_attack 'DoS' --model "CAAE" --batch_size 64 --is_train
