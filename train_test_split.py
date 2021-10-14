@@ -67,15 +67,17 @@ def write_tfrecord(data, filename):
     tfrecord_writer.close()
     
 def train_test_split(source_path, dest_path, DATASET_SIZE,\
-                     train_label_ratio=0.1, train_ratio = 0.7, val_ratio = 0.15, test_ratio = 0.15):
+                     train_l_size, train_ul_size, val_size, test_size):
 
-    train_size = int(DATASET_SIZE * train_ratio)
-    train_label_size = int(train_size * train_label_ratio)
-    val_size = int(DATASET_SIZE * val_ratio)
-    test_size = int(DATASET_SIZE * test_ratio)
+    train_size = train_l_size + train_ul_size
+    train_label_size = train_l_size
+    # train_size = int(DATASET_SIZE * train_ratio)
+    # train_label_size = int(train_size * train_label_ratio)
+    # val_size = int(DATASET_SIZE * val_ratio)
+    # test_size = int(DATASET_SIZE * test_ratio)
 
-    print(train_label_size, train_size, val_size, test_size)
-    
+    print(train_label_size, train_size - train_label_size, val_size, test_size)
+    #return
     dataset = tf.data.TFRecordDataset(source_path)
     dataset = dataset.map(read_tfrecord)
     dataset = dataset.shuffle(50000)
@@ -114,7 +116,8 @@ def main_attack(indir, outdir, attack_types):
         dest = '{}/{}/'.format(outdir, attack)
         if not os.path.exists(dest):
             os.makedirs(dest)
-        train_test_split(source, dest, data_info[source], train_label_ratio=0.5, train_ratio=0.1, val_ratio=0.2, test_ratio=0.3)
+        #train_test_split(source, dest, data_info[source], train_label_ratio=0.1, train_ratio=0.1, val_ratio=0.2, test_ratio=0.3)
+        train_test_split(source, dest, data_info[source], train_l_size=int(5e2), train_ul_size=int(5e3), val_size=int(1e4), test_size=int(1e4))
         
 def main_normal(indir, outdir, attack_types):
     normal_size = 0
@@ -126,7 +129,7 @@ def main_normal(indir, outdir, attack_types):
     if not os.path.exists(dest):
         os.makedirs(dest)
         
-    train_test_split(sources, dest, normal_size)
+    train_test_split(sources, dest, normal_size, train_l_size=int(2e4), train_ul_size=int(2e5), val_size=int(5e4), test_size=int(5e4))
     
 if __name__ == '__main__':
     #cmd for normal: train_test_split.py --attack_type all --normal True

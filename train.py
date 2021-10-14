@@ -28,7 +28,6 @@ class Model:
         self.batch_size_unknown = 0
         self.batch_size = batch_size
         self.n_epochs = n_epochs
-        # learning_rate = 0.001
         self.supervised_lr = supervised_lr
         self.reconstruction_lr = reconstruction_lr
         self.regularization_lr = regularization_lr
@@ -137,22 +136,10 @@ class Model:
             d_c_real = self.model.discriminator_categorical(self.categorial_distribution)
             d_c_fake = self.model.discriminator_categorical(self.encoder_output_label, reuse=True)
 
-        # Discriminator gaussian loss 
-        #         dc_g_loss_real = tf.reduce_mean(
-        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_real), logits=d_g_real))
-        #         dc_g_loss_fake = tf.reduce_mean(
-        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_g_fake), logits=d_g_fake))
-        #         self.dc_g_loss = dc_g_loss_real + dc_g_loss_fake
         #WGAN-GP
         self.dc_g_loss = -tf.reduce_mean(d_g_real) + tf.reduce_mean(d_g_fake) \
                         + 10.0 * self.gradient_penalty(self.real_distribution, self.encoder_output_latent, self.model.discriminator_gauss)
 
-        # Discriminator categorical loss
-        #         dc_c_loss_real = tf.reduce_mean(
-        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_real), logits=d_c_real))
-        #         dc_c_loss_fake = tf.reduce_mean(
-        #                             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(d_c_fake), logits=d_c_fake))
-        #         self.dc_c_loss = dc_c_loss_fake + dc_c_loss_real
         self.dc_c_loss = -tf.reduce_mean(d_c_real) + tf.reduce_mean(d_c_fake) \
                         + 10.0 * self.gradient_penalty(self.categorial_distribution, self.encoder_output_label, self.model.discriminator_categorical)
 
@@ -164,9 +151,6 @@ class Model:
         self.discriminator_c_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate,
                                                                beta1=self.beta1, beta2=self.beta2).minimize(self.dc_c_loss, var_list=dc_c_var)
         # Generator loss
-        # generator_g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_g_fake), logits=d_g_fake))
-        # generator_c_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d_c_fake), logits=d_c_fake))
-        #self.generator_loss = generator_g_loss + generator_c_loss
         self.generator_loss = -tf.reduce_mean(d_g_fake)-tf.reduce_mean(d_c_fake)
 
         en_var = [var for var in all_variables if 'e_' in var.name]
@@ -180,7 +164,7 @@ class Model:
         # Classification accuracy of encoder
         self.output_label = tf.argmax(self.encoder_output_label_, 1)
         correct_pred = tf.equal(self.output_label, tf.argmax(self.y_input, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        self.accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
         self.supervised_encoder_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_input, logits=self.encoder_output_label_))
         self.supervised_encoder_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1_sup).minimize(self.supervised_encoder_loss, var_list=en_var)
@@ -215,8 +199,6 @@ class Model:
         if not self.is_build:
             self.build()
         all_variables = tf.trainable_variables()
-#         print([n.name for n in tf.get_default_graph().as_graph_def().node if 'e_label' in n.name])
-#         return
         init = tf.global_variables_initializer()
         # Tensorboard visualization
         tf.summary.scalar(name='Autoencoder Loss', tensor=self.autoencoder_loss)
@@ -224,11 +206,11 @@ class Model:
         tf.summary.scalar(name='Discriminator categorical Loss', tensor=self.dc_c_loss)
         tf.summary.scalar(name='Generator Loss', tensor=self.generator_loss)
         tf.summary.scalar(name='Supervised Encoder Loss', tensor=self.supervised_encoder_loss)
-        # tf.summary.scalar(name='Supervised Encoder Accuracy', tensor=accuracy)
-        #tf.summary.histogram(name='Encoder Gauss Distribution', values=self.encoder_output_latent)
-        #tf.summary.histogram(name='Real Gauss Distribution', values=self.real_distribution)
-        #tf.summary.histogram(name='Encoder Categorical Distribution', values=self.encoder_output_label)
-        #tf.summary.histogram(name='Real Categorical Distribution', values=self.categorial_distribution)
+        tf.summary.scalar(name='Supervised Encoder Accuracy', tensor=self.accuracy)
+        tf.summary.histogram(name='Encoder Gauss Distribution', values=self.encoder_output_latent)
+        tf.summary.histogram(name='Real Gauss Distribution', values=self.real_distribution)
+        tf.summary.histogram(name='Encoder Categorical Distribution', values=self.encoder_output_label)
+        tf.summary.histogram(name='Real Categorical Distribution', values=self.categorial_distribution)
         self.summary_op = tf.summary.merge_all()
         accuracies = []
         # Saving the model
@@ -374,12 +356,9 @@ class Model:
                 batch_raw_pred, batch_pred, batch_latent = sess.run([self.encoder_output_label_, self.output_label, self.encoder_output_latent_], feed_dict={self.x_input_l: x_test, self.keep_prob: 1.0})
                 total_latent = np.append(total_latent, batch_latent, axis=0)
                 batch_label = np.argmax(y_test, axis=1).reshape((self.batch_size))
-                #prob = np.max(batch_pred, axis=1).reshape((self.batch_size))
-                #batch_pred = np.argmax(batch_pred, axis=1).reshape((self.batch_size))
                 raw_pred = np.append(raw_pred, batch_raw_pred, axis=0)
                 y_pred = np.append(y_pred, batch_pred, axis=0)
                 y_true = np.append(y_true, batch_label, axis=0) 
-                #total_prob = np.append(total_prob, prob, axis=0)
                 
         evaluate(y_true, y_pred)
         return raw_pred, y_pred, y_true
@@ -436,11 +415,5 @@ if __name__ == '__main__':
         if args.res_path is None:
             print("Must define res_path which store model's weights")
         else:
-            #res_path = './Results/all/CNN_2021-07-21 19:53:22.883136_10_0.0001_64_300_0.9_Semi_Supervised/'
-            #res_path = './Results/unknown/DoS/2021-07-21 15:02:31.836424_10_0.0001_100_300_0.9_Semi_Supervised/'
             model.test(args.res_path, unknown_test=False)
             model.test(args.res_path, unknown_test=True)
-#             print('Result Unknown Attack:')
-#             model.ensemble_predict(args.res_path, unknown_test=True)
-#             print('Result Known Attack:')
-#             model.ensemble_predict(args.res_path, unknown_test=False)
