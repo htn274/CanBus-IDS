@@ -13,7 +13,4 @@ x, y = data_stream(tf_data, sess_cpu)
 
 model_path = './Results/all/0.3_CNN_WGAN_2021-08-27 20:17:51.691776_10_0.0001_64_300_0.5_Semi_Supervised/Saved_models/'
 time = model.timing(x, model_path, use_gpu=False)
-# for _ in range(30):
-#     time.append(model.timing(x, model_path, use_gpu=False))
-print(time)
 print('Average test time for {} sample: {}ms'.format(batch_size, np.mean(time)*1000))
