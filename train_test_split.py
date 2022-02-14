@@ -106,7 +106,9 @@ def train_test_split(source_path, dest_path, DATASET_SIZE,\
     write_tfrecord(test, dest_path + 'test')
     write_tfrecord(val, dest_path + 'val')
     
-def main_attack(indir, outdir, attack_types):
+def main_attack(attack_types, args):
+    indir = args.indir
+    outdir = args.outdir + '/Train_{}_Labeled_{}'.format(args.train_ratio, args.train_label_ratio)
     data_info = json.load(open('{}/datainfo.txt'.format(indir)))
     for attack in attack_types:
         print("Attack: {} ==============".format(attack))
@@ -114,9 +116,13 @@ def main_attack(indir, outdir, attack_types):
         dest = '{}/{}/'.format(outdir, attack)
         if not os.path.exists(dest):
             os.makedirs(dest)
-        train_test_split(source, dest, data_info[source], train_label_ratio=0.4, train_ratio=0.3, val_ratio=0.2, test_ratio=0.3)
+        train_test_split(source, dest, data_info[source], 
+                        train_label_ratio=args.train_label_ratio, train_ratio=args.train_ratio, 
+                        val_ratio=args.val_ratio, test_ratio=args.test_ratio)
         
-def main_normal(indir, outdir, attack_types):
+def main_normal(attack_types, args):
+    indir = args.indir
+    outdir = args.outdir + '/Train_{}_Labeled_{}'.format(args.train_ratio, args.train_label_ratio)
     normal_size = 0
     data_info = json.load(open('{}/datainfo.txt'.format(indir)))
     for attack in attack_types:
@@ -126,16 +132,19 @@ def main_normal(indir, outdir, attack_types):
     if not os.path.exists(dest):
         os.makedirs(dest)
         
-    train_test_split(sources, dest, normal_size, train_label_ratio=0.4)
+    train_test_split(sources, dest, normal_size, 
+                    train_label_ratio=args.train_label_ratio)
     
 if __name__ == '__main__':
-    #cmd for normal: train_test_split.py --attack_type all --normal True
-    #cmd for attack: train_test_split.py --attack_type all
     parser = argparse.ArgumentParser()
     parser.add_argument('--indir', type=str, default="../Data/TFRecord")
     parser.add_argument('--outdir', type=str, default="../Data")
     parser.add_argument('--attack_type', type=str, nargs='+', default=[None])
     parser.add_argument('--normal', type=bool, default=False)
+    parser.add_argument('--train_ratio', type=float, default=0.7)
+    parser.add_argument('--train_label_ratio', type=float, default=0.1)
+    parser.add_argument('--val_ratio', type=float, default=0.15)
+    parser.add_argument('--test_ratio', type=float, default=0.15)
     args = parser.parse_args()
 
     if args.attack_type[0] == 'all':
@@ -146,7 +155,7 @@ if __name__ == '__main__':
         attack_types = args.attack_type
     
     if args.normal:
-        main_normal(args.indir, args.outdir, attack_types)
+        main_normal(attack_types, args)
         
     if attack_types is not None:
-        main_attack(args.indir, args.outdir, attack_types)
+        main_attack(attack_types, args)
