@@ -16,5 +16,5 @@ Autoencoders"](https://arxiv.org/submit/4244916/view)
 
 - [preprocessing.py](preprocessing.py): transform csv format into tfrecord format
 - [train_test_split.py](train_test_split.py): split total data into train/test/validation set
-- [train.py](train.py): train the model
+- [train.py](train.py): train/test the model by using is_train option
 - [test_performance.py](test_performance.py): measure the inference time of the model
