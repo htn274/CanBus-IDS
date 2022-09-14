@@ -1,7 +1,7 @@
 # Semi-supervised Deep Learning Based In-vehicle Intrusion Detection System Using Convolutional Adversarial Autoencoder
 
 This is the implementation of the paper ["Detecting In-vehicle Intrusion via Semi-supervised Learning-based Convolutional Adversarial
-Autoencoders"](https://arxiv.org/abs/2204.01193)
+Autoencoders"](https://doi.org/10.1016/j.vehcom.2022.100520)
 
 ## Requirements & Libraries
 
